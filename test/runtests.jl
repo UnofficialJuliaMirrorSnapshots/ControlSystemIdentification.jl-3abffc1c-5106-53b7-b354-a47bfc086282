@@ -1,4 +1,4 @@
-using ControlSystemIdentification, ControlSystems, Optim, Plots
+using ControlSystemIdentification, ControlSystems, Optim, Plots, DSP
 using Test, Random, LinearAlgebra
 
 function ⟂(x)
@@ -37,6 +37,7 @@ end
         # @btime begin
         # Random.seed!(0)
         sysh,x0h,opt = pem(yn,un,nx=nx, focus=:prediction)
+        # bodeplot([sys,ss(sysh)], exp10.(range(-3, stop=log10(pi), length=150)), legend=false, ylims=(0.01,100))
         # end
         # 462ms 121 29
         # 296ms
@@ -91,7 +92,7 @@ end
         y  = sim(sys, un, x0)
         yn = y + sim(sysn, σy*randn(size(u)),0*x0)
         @time sysh,x0h,opt = pem(yn,un,nx=nx, focus=:simulation)
-        @test sysh.C*x0h ≈ sys.C*x0 atol=0.1
+        @test sysh.C*x0h ≈ sys.C*x0 atol=0.3
         @test Optim.minimum(opt) < 1
 
         # L1 error minimization
@@ -134,7 +135,7 @@ end
         @test A[:,1] == y[1:end-na]
         @test A[:,2] == u[1:end-1]
 
-        na = 2
+        na = 1
         Gh,Σ = arx(1,y,u,na,nb)
         @test Gh ≈ G # Should recover the original transfer function exactly
         ω=exp10.(range(-2, stop=1, length=200))
@@ -152,6 +153,41 @@ end
         @test Gh2 ≈ G2
     end
 
+    @testset "ar" begin
+        N = 10000
+        t = 1:N
+        y = zeros(N)
+        y[1] = randn()
+        for i = 2:N
+            y[i] = 0.9y[i-1]
+        end
+        G = tf(1, [1,-0.9], 1)
+
+        na = 1
+        yr,A = ControlSystemIdentification.getARregressor(y,na)
+        @test length(yr) == N-na
+        @test size(A) == (N-na, na)
+
+        @test yr == y[na+1:end]
+        @test A[:,1] == y[1:end-na]
+
+        Gh,Σ = ar(1,y,na)
+        @test Gh ≈ G # We should be able to recover this transfer function
+
+        N = 10000
+        t = 1:N
+        y = zeros(N)
+        y[1] = 5randn()
+        for i = 2:N
+            y[i] = 0.9y[i-1] + 0.01randn()
+        end
+        Gh,Σ = ar(1,y,na)
+        @test Gh ≈ G atol=0.02 # We should be able to recover this transfer function
+        yh = predict(Gh,y)
+        @test rms(y[2:end]-yh) < 0.0102
+
+    end
+
 
     @testset "plr" begin
 
@@ -163,7 +199,7 @@ end
         e = randn(N)
         yn = y + e
 
-        na,nb,nc = 2,1,1
+        na,nb,nc = 1,1,1
         find_na(y,6)
         find_nanb(y,u,6,6)
         Gls,Σ = arx(1,yn,u,na,nb)
